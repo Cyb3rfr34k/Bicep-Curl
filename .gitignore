@@ -1,0 +1,10 @@
+myenv
+vevn
+__pycache__
+.idea
+evn
+.gradle/
+.kotlin/
+build/
+app/build/
+local.properties
