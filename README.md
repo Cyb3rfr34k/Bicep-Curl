@@ -11,7 +11,16 @@ This is a small MVP focused on one exercise only:
 - Offline-only
 - No login, cloud backend, ads, or account system
 
-Prototype disclaimer: this app uses camera-based pose estimates and simple thresholds. It may miscount reps, especially with poor lighting, partial body visibility, camera motion, or unusual viewing angles.
+Prototype disclaimer: this app uses camera-based pose estimates and rule-based rep logic. It may miscount reps, especially with poor lighting, partial body visibility, camera motion, or unusual viewing angles.
+
+## Version
+
+Current version: `0.2.0`
+
+This project uses pre-1.0 semantic versioning:
+
+- `0.1.0`: first working Android camera MVP for two-arm bicep curls.
+- `0.2.0`: smarter rule-based counter with confidence filtering, arm-sync rejection, and down-up-down state-machine validation.
 
 ## How To Test
 
@@ -49,9 +58,10 @@ The runtime pipeline is:
 CameraX frame
 -> MediaPipe Pose Landmarker
 -> shoulder/elbow/wrist/hip landmarks
+-> landmark confidence and both-arm visibility checks
 -> elbow and shoulder angle calculations
 -> two-arm curl angle average
--> up/down stage detection
+-> two-arm state-machine validation
 -> rep counter
 -> Compose overlay
 ```
@@ -72,8 +82,24 @@ Thresholds are intentionally plain constants in `BicepCurlCounter.kt` so they ca
 - Curled/up threshold: elbow angle `<= 50`
 - Lowered/down threshold: elbow angle `>= 160`
 - Shoulder/form threshold: shoulder angle `>= 150`
+- Minimum landmark confidence: `>= 0.55`
+- Maximum left/right elbow difference: `<= 30` degrees
 
-The debug overlay is temporary instrumentation. It is there to make the development loop visible while testing: pose detected, counting mode, curl angle, form angle, stage, feedback, and reset.
+The debug overlay is temporary instrumentation. It is there to make the development loop visible while testing: pose detected, frame accepted/rejected, state-machine status, confidence, arm sync, curl angle, form angle, stage, feedback, and reset.
+
+## Testing
+
+Run the JVM unit tests for the pure Kotlin counter logic:
+
+```bash
+./gradlew :app:testDebugUnitTest
+```
+
+Run a full debug APK build:
+
+```bash
+./gradlew :app:assembleDebug
+```
 
 ## Attribution
 
@@ -95,4 +121,4 @@ This Android MVP was inspired by the public Python MediaPipe/OpenCV exercise-cou
 - Add a simple skeleton overlay for shoulders, elbows, and wrists.
 - Add calibration for personal top/bottom curl angles.
 - Add session summary: reps, duration, average rep time.
-- Add unit tests for `BicepCurlCounter`.
+- Add screenshot/manual QA notes for the camera testing setup.

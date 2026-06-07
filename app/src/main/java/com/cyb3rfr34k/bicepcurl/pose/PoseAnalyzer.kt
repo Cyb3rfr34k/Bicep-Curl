@@ -15,6 +15,7 @@ import com.google.mediapipe.tasks.vision.poselandmarker.PoseLandmarker
 import com.google.mediapipe.tasks.vision.poselandmarker.PoseLandmarkerResult
 import com.cyb3rfr34k.bicepcurl.counter.BicepCurlCounter
 import com.cyb3rfr34k.bicepcurl.counter.RepCounterState
+import kotlin.math.abs
 
 class PoseAnalyzer(
     context: Context,
@@ -38,7 +39,16 @@ class PoseAnalyzer(
             .setMinPosePresenceConfidence(MIN_POSE_PRESENCE_CONFIDENCE)
             .setMinTrackingConfidence(MIN_TRACKING_CONFIDENCE)
             .setResultListener(::handleResult)
-            .setErrorListener { onState(counter.update(null, null)) }
+            .setErrorListener {
+                onState(
+                    counter.update(
+                        elbowAngle = null,
+                        shoulderAngle = null,
+                        poseDetected = false,
+                        frameStatus = "pose detection error",
+                    ),
+                )
+            }
             .build()
 
         poseLandmarker = PoseLandmarker.createFromOptions(context, options)
@@ -63,13 +73,27 @@ class PoseAnalyzer(
     private fun handleResult(result: PoseLandmarkerResult, @Suppress("UNUSED_PARAMETER") input: com.google.mediapipe.framework.image.MPImage) {
         val pose = result.landmarks().firstOrNull()
         if (pose == null) {
-            onState(counter.update(null, null))
+            onState(
+                counter.update(
+                    elbowAngle = null,
+                    shoulderAngle = null,
+                    poseDetected = false,
+                    frameStatus = "no pose detected",
+                ),
+            )
             return
         }
 
         val measurement = extractBicepCurlMeasurement(pose)
         if (measurement?.twoArmElbowAngle == null || measurement.combinedShoulderAngle == null) {
-            onState(counter.update(null, null))
+            onState(
+                counter.update(
+                    elbowAngle = null,
+                    shoulderAngle = null,
+                    poseDetected = true,
+                    frameStatus = "both arms not visible",
+                ),
+            )
             return
         }
 
@@ -81,6 +105,9 @@ class PoseAnalyzer(
                 leftShoulderAngle = measurement.left?.shoulderAngle,
                 rightElbowAngle = measurement.right?.elbowAngle,
                 rightShoulderAngle = measurement.right?.shoulderAngle,
+                landmarkConfidence = measurement.landmarkConfidence,
+                armAgreementDegrees = measurement.armAgreementDegrees,
+                poseDetected = true,
             ),
         )
     }
@@ -88,7 +115,7 @@ class PoseAnalyzer(
     private fun extractBicepCurlMeasurement(
         pose: List<NormalizedLandmark>,
     ): BicepCurlFrameMeasurement? {
-        if (pose.size <= LEFT_HIP) {
+        if (pose.size <= RIGHT_HIP) {
             return null
         }
 
@@ -110,7 +137,9 @@ class PoseAnalyzer(
             left = left,
             right = right,
             twoArmElbowAngle = averageOrNull(left?.elbowAngle, right?.elbowAngle),
-            combinedShoulderAngle = maxOrNull(left?.shoulderAngle, right?.shoulderAngle),
+            combinedShoulderAngle = averageOrNull(left?.shoulderAngle, right?.shoulderAngle),
+            landmarkConfidence = minOrNull(left?.landmarkConfidence, right?.landmarkConfidence),
+            armAgreementDegrees = calculateAgreement(left?.elbowAngle, right?.elbowAngle),
         )
     }
 
@@ -129,10 +158,12 @@ class PoseAnalyzer(
         val elbow = point(elbowIndex)
         val wrist = point(wristIndex)
         val hip = point(hipIndex)
+        val confidence = listOf(shoulder, elbow, wrist, hip).minOf { it.confidence }
 
         return ArmMeasurement(
-            elbowAngle = AngleCalculator.calculateJointAngle(shoulder, elbow, wrist),
-            shoulderAngle = AngleCalculator.calculateAngle(hip, shoulder, elbow),
+            elbowAngle = AngleCalculator.calculateJointAngle(shoulder.point, elbow.point, wrist.point),
+            shoulderAngle = AngleCalculator.calculateAngle(hip.point, shoulder.point, elbow.point),
+            landmarkConfidence = confidence,
         )
     }
 
@@ -144,17 +175,42 @@ class PoseAnalyzer(
         }
     }
 
-    private fun maxOrNull(first: Double?, second: Double?): Double? {
+    private fun minOrNull(first: Float?, second: Float?): Float? {
         return when {
             first == null -> second
             second == null -> first
-            else -> maxOf(first, second)
+            else -> minOf(first, second)
         }
     }
 
-    private fun List<NormalizedLandmark>.point(index: Int): PosePoint {
+    private fun calculateAgreement(first: Double?, second: Double?): Double? {
+        if (first == null || second == null) {
+            return null
+        }
+
+        return abs(first - second)
+    }
+
+    private fun List<NormalizedLandmark>.point(index: Int): PoseLandmarkPoint {
         val landmark = this[index]
-        return PosePoint(x = landmark.x(), y = landmark.y())
+        return PoseLandmarkPoint(
+            point = PosePoint(x = landmark.x(), y = landmark.y()),
+            confidence = landmark.confidence(),
+        )
+    }
+
+    private fun NormalizedLandmark.confidence(): Float {
+        val visibility = visibility().orElse(1.0f)
+        val presence = presence().orElse(1.0f)
+        val frameScore = if (isInsideFrame()) 1.0f else 0.0f
+        return minOf(visibility, presence, frameScore)
+    }
+
+    private fun NormalizedLandmark.isInsideFrame(): Boolean {
+        return x() >= -NORMALIZED_FRAME_MARGIN &&
+            x() <= 1.0f + NORMALIZED_FRAME_MARGIN &&
+            y() >= -NORMALIZED_FRAME_MARGIN &&
+            y() <= 1.0f + NORMALIZED_FRAME_MARGIN
     }
 
     private fun ImageProxy.toBitmapForPoseDetection(frontCamera: Boolean): Bitmap {
@@ -188,11 +244,19 @@ class PoseAnalyzer(
         val right: ArmMeasurement?,
         val twoArmElbowAngle: Double?,
         val combinedShoulderAngle: Double?,
+        val landmarkConfidence: Float?,
+        val armAgreementDegrees: Double?,
     )
 
     private data class ArmMeasurement(
         val elbowAngle: Double,
         val shoulderAngle: Double,
+        val landmarkConfidence: Float,
+    )
+
+    private data class PoseLandmarkPoint(
+        val point: PosePoint,
+        val confidence: Float,
     )
 
     companion object {
@@ -200,6 +264,7 @@ class PoseAnalyzer(
         private const val MIN_POSE_DETECTION_CONFIDENCE = 0.5f
         private const val MIN_POSE_PRESENCE_CONFIDENCE = 0.5f
         private const val MIN_TRACKING_CONFIDENCE = 0.5f
+        private const val NORMALIZED_FRAME_MARGIN = 0.05f
 
         private const val LEFT_SHOULDER = 11
         private const val LEFT_ELBOW = 13

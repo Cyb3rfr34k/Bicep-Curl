@@ -23,4 +23,8 @@ data class RepCounterState(
     val stage: CurlStage = CurlStage.UNKNOWN,
     val feedback: ExerciseFeedback = ExerciseFeedback(),
     val poseDetected: Boolean = false,
+    val frameAccepted: Boolean = false,
+    val frameStatus: String = "waiting for pose",
+    val landmarkConfidence: Float? = null,
+    val armAgreementDegrees: Double? = null,
 )

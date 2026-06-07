@@ -218,9 +218,13 @@ private fun DebugPanel(state: RepCounterState) {
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         DebugRow(label = "Pose", value = if (state.poseDetected) "detected" else "not detected")
+        DebugRow(label = "Frame", value = if (state.frameAccepted) "accepted" else "rejected")
+        DebugRow(label = "Status", value = state.frameStatus)
         DebugRow(label = "Mode", value = state.countingMode)
         DebugRow(label = "Both-arm curl angle", value = state.elbowAngle.formatAngle())
         DebugRow(label = "Form angle", value = state.shoulderAngle.formatAngle())
+        DebugRow(label = "Landmark confidence", value = state.landmarkConfidence.formatConfidence())
+        DebugRow(label = "Arm sync difference", value = state.armAgreementDegrees.formatAngle())
     }
 }
 
@@ -341,5 +345,13 @@ private fun Double?.formatAngle(): String {
         "--"
     } else {
         String.format(Locale.US, "%.0f deg", this)
+    }
+}
+
+private fun Float?.formatConfidence(): String {
+    return if (this == null) {
+        "--"
+    } else {
+        String.format(Locale.US, "%.2f", this)
     }
 }

@@ -1,14 +1,19 @@
 package com.cyb3rfr34k.bicepcurl.counter
 
+import kotlin.math.abs
+
 class BicepCurlCounter {
     private var repCount = 0
     private var smoothedElbowAngle: Double? = null
     private var smoothedShoulderAngle: Double? = null
-    private var candidateStage = CurlStage.UNKNOWN
-    private var candidateStageFrames = 0
-    private var stableStage = CurlStage.UNKNOWN
-    private var hasReachedCurlTop = false
+    private var candidatePosition = CurlPosition.UNKNOWN
+    private var candidatePositionFrames = 0
+    private var stablePosition = CurlPosition.UNKNOWN
+    private var phase = CurlPhase.WAITING_FOR_BOTTOM
+    private var previousAcceptedAngle: Double? = null
     private var framesSinceRep = MIN_FRAMES_BETWEEN_REPS
+    private var framesSinceTop = MIN_FRAMES_AFTER_TOP_BEFORE_REP
+    private var rejectedFrameStreak = 0
     private var goodRepFramesRemaining = 0
 
     fun update(
@@ -18,21 +23,59 @@ class BicepCurlCounter {
         leftShoulderAngle: Double? = shoulderAngle,
         rightElbowAngle: Double? = null,
         rightShoulderAngle: Double? = null,
+        landmarkConfidence: Float? = null,
+        armAgreementDegrees: Double? = calculateArmAgreement(leftElbowAngle, rightElbowAngle),
+        poseDetected: Boolean = elbowAngle != null && shoulderAngle != null,
+        frameStatus: String? = null,
     ): RepCounterState {
         framesSinceRep += 1
+        framesSinceTop += 1
 
         if (elbowAngle == null || shoulderAngle == null) {
-            candidateStage = CurlStage.UNKNOWN
-            candidateStageFrames = 0
-            return currentState(
+            return rejectedState(
                 elbowAngle = null,
                 shoulderAngle = null,
                 leftElbowAngle = leftElbowAngle,
                 leftShoulderAngle = leftShoulderAngle,
                 rightElbowAngle = rightElbowAngle,
                 rightShoulderAngle = rightShoulderAngle,
-                poseDetected = false,
-                feedback = ExerciseFeedback("Show your upper body to the camera"),
+                poseDetected = poseDetected,
+                frameStatus = frameStatus ?: "missing curl landmarks",
+                landmarkConfidence = landmarkConfidence,
+                armAgreementDegrees = armAgreementDegrees,
+                feedback = ExerciseFeedback("Show both arms and upper body"),
+            )
+        }
+
+        if (landmarkConfidence != null && landmarkConfidence < MIN_LANDMARK_CONFIDENCE) {
+            return rejectedState(
+                elbowAngle = smoothedElbowAngle,
+                shoulderAngle = smoothedShoulderAngle,
+                leftElbowAngle = leftElbowAngle,
+                leftShoulderAngle = leftShoulderAngle,
+                rightElbowAngle = rightElbowAngle,
+                rightShoulderAngle = rightShoulderAngle,
+                poseDetected = poseDetected,
+                frameStatus = "low landmark confidence",
+                landmarkConfidence = landmarkConfidence,
+                armAgreementDegrees = armAgreementDegrees,
+                feedback = ExerciseFeedback("Keep both arms visible"),
+            )
+        }
+
+        if (armAgreementDegrees != null && armAgreementDegrees > MAX_ARM_ANGLE_DIFFERENCE_DEGREES) {
+            return rejectedState(
+                elbowAngle = smoothedElbowAngle,
+                shoulderAngle = smoothedShoulderAngle,
+                leftElbowAngle = leftElbowAngle,
+                leftShoulderAngle = leftShoulderAngle,
+                rightElbowAngle = rightElbowAngle,
+                rightShoulderAngle = rightShoulderAngle,
+                poseDetected = poseDetected,
+                frameStatus = "arms out of sync",
+                landmarkConfidence = landmarkConfidence,
+                armAgreementDegrees = armAgreementDegrees,
+                feedback = ExerciseFeedback("Move both arms together"),
             )
         }
 
@@ -43,17 +86,34 @@ class BicepCurlCounter {
             smoothedShoulderAngle = it
         }
 
-        val detectedStage = classifyStage(elbow, shoulder)
-        updateStageCandidate(detectedStage)
+        if (shoulder < SHOULDER_FORM_THRESHOLD_DEGREES) {
+            return rejectedState(
+                elbowAngle = elbow,
+                shoulderAngle = shoulder,
+                leftElbowAngle = leftElbowAngle,
+                leftShoulderAngle = leftShoulderAngle,
+                rightElbowAngle = rightElbowAngle,
+                rightShoulderAngle = rightShoulderAngle,
+                poseDetected = poseDetected,
+                frameStatus = "upper arms moving too much",
+                landmarkConfidence = landmarkConfidence,
+                armAgreementDegrees = armAgreementDegrees,
+                feedback = ExerciseFeedback("Keep upper arms steady"),
+            )
+        }
 
-        var feedback = feedbackFor(stableStage, shoulder)
+        rejectedFrameStreak = 0
+        updateMovementPhase(elbow)
 
-        if (candidateStage != CurlStage.UNKNOWN &&
-            candidateStageFrames >= STABLE_STAGE_FRAME_COUNT &&
-            candidateStage != stableStage
+        val detectedPosition = classifyPosition(elbow)
+        updatePositionCandidate(detectedPosition)
+
+        var feedback = feedbackForPhase()
+        if (candidatePositionFrames >= STABLE_POSITION_FRAME_COUNT &&
+            candidatePosition != stablePosition
         ) {
-            stableStage = candidateStage
-            feedback = onStableStageChanged(stableStage)
+            stablePosition = candidatePosition
+            feedback = onStablePositionChanged(stablePosition)
         }
 
         if (goodRepFramesRemaining > 0) {
@@ -68,21 +128,56 @@ class BicepCurlCounter {
             leftShoulderAngle = leftShoulderAngle,
             rightElbowAngle = rightElbowAngle,
             rightShoulderAngle = rightShoulderAngle,
-            poseDetected = true,
+            poseDetected = poseDetected,
+            frameAccepted = true,
+            frameStatus = phase.label,
+            landmarkConfidence = landmarkConfidence,
+            armAgreementDegrees = armAgreementDegrees,
             feedback = feedback,
         )
     }
 
     fun reset() {
         repCount = 0
-        smoothedElbowAngle = null
-        smoothedShoulderAngle = null
-        candidateStage = CurlStage.UNKNOWN
-        candidateStageFrames = 0
-        stableStage = CurlStage.UNKNOWN
-        hasReachedCurlTop = false
+        resetTrackingState()
         framesSinceRep = MIN_FRAMES_BETWEEN_REPS
         goodRepFramesRemaining = 0
+    }
+
+    private fun rejectedState(
+        elbowAngle: Double?,
+        shoulderAngle: Double?,
+        leftElbowAngle: Double?,
+        leftShoulderAngle: Double?,
+        rightElbowAngle: Double?,
+        rightShoulderAngle: Double?,
+        poseDetected: Boolean,
+        frameStatus: String,
+        landmarkConfidence: Float?,
+        armAgreementDegrees: Double?,
+        feedback: ExerciseFeedback,
+    ): RepCounterState {
+        clearPositionCandidate()
+        rejectedFrameStreak += 1
+
+        if (rejectedFrameStreak >= REJECTED_FRAME_RESET_COUNT) {
+            resetTrackingState()
+        }
+
+        return currentState(
+            elbowAngle = elbowAngle,
+            shoulderAngle = shoulderAngle,
+            leftElbowAngle = leftElbowAngle,
+            leftShoulderAngle = leftShoulderAngle,
+            rightElbowAngle = rightElbowAngle,
+            rightShoulderAngle = rightShoulderAngle,
+            poseDetected = poseDetected,
+            frameAccepted = false,
+            frameStatus = frameStatus,
+            landmarkConfidence = landmarkConfidence,
+            armAgreementDegrees = armAgreementDegrees,
+            feedback = feedback,
+        )
     }
 
     private fun smooth(previous: Double?, next: Double): Double {
@@ -93,60 +188,116 @@ class BicepCurlCounter {
         }
     }
 
-    private fun classifyStage(elbowAngle: Double, shoulderAngle: Double): CurlStage {
-        if (shoulderAngle < SHOULDER_FORM_THRESHOLD_DEGREES) {
-            return CurlStage.UNKNOWN
-        }
-
+    private fun classifyPosition(elbowAngle: Double): CurlPosition {
         return when {
-            elbowAngle <= ELBOW_UP_THRESHOLD_DEGREES -> CurlStage.UP
-            elbowAngle >= ELBOW_DOWN_THRESHOLD_DEGREES -> CurlStage.DOWN
-            else -> CurlStage.UNKNOWN
+            elbowAngle <= ELBOW_UP_THRESHOLD_DEGREES -> CurlPosition.TOP
+            elbowAngle >= ELBOW_DOWN_THRESHOLD_DEGREES -> CurlPosition.BOTTOM
+            else -> CurlPosition.MID
         }
     }
 
-    private fun updateStageCandidate(stage: CurlStage) {
-        if (stage == candidateStage) {
-            candidateStageFrames += 1
+    private fun updatePositionCandidate(position: CurlPosition) {
+        if (position == candidatePosition) {
+            candidatePositionFrames += 1
         } else {
-            candidateStage = stage
-            candidateStageFrames = 1
+            candidatePosition = position
+            candidatePositionFrames = 1
         }
     }
 
-    private fun onStableStageChanged(stage: CurlStage): ExerciseFeedback {
-        return when (stage) {
-            CurlStage.UP -> {
-                hasReachedCurlTop = true
-                ExerciseFeedback("Lower down")
+    private fun updateMovementPhase(currentAngle: Double) {
+        val previousAngle = previousAcceptedAngle
+        previousAcceptedAngle = currentAngle
+
+        if (previousAngle == null) {
+            return
+        }
+
+        val delta = currentAngle - previousAngle
+        if (abs(delta) < MOVEMENT_DELTA_THRESHOLD_DEGREES) {
+            return
+        }
+
+        when {
+            delta < 0.0 && phase == CurlPhase.READY_AT_BOTTOM -> {
+                phase = CurlPhase.CURLING_UP
             }
 
-            CurlStage.DOWN -> {
-                if (hasReachedCurlTop && framesSinceRep >= MIN_FRAMES_BETWEEN_REPS) {
-                    repCount += 1
-                    framesSinceRep = 0
-                    goodRepFramesRemaining = GOOD_REP_FEEDBACK_FRAMES
-                    hasReachedCurlTop = false
-                    ExerciseFeedback("Good rep", isPositive = true)
-                } else {
-                    ExerciseFeedback("Curl up")
-                }
+            delta > 0.0 && phase == CurlPhase.AT_TOP -> {
+                phase = CurlPhase.LOWERING_DOWN
             }
-
-            CurlStage.UNKNOWN -> ExerciseFeedback("Move through a full curl")
         }
     }
 
-    private fun feedbackFor(stage: CurlStage, shoulderAngle: Double): ExerciseFeedback {
-        if (shoulderAngle < SHOULDER_FORM_THRESHOLD_DEGREES) {
-            return ExerciseFeedback("Keep upper arm steady")
+    private fun onStablePositionChanged(position: CurlPosition): ExerciseFeedback {
+        return when (position) {
+            CurlPosition.BOTTOM -> onStableBottom()
+            CurlPosition.TOP -> onStableTop()
+            CurlPosition.MID,
+            CurlPosition.UNKNOWN,
+            -> feedbackForPhase()
+        }
+    }
+
+    private fun onStableBottom(): ExerciseFeedback {
+        if (phase == CurlPhase.AT_TOP || phase == CurlPhase.LOWERING_DOWN) {
+            phase = CurlPhase.READY_AT_BOTTOM
+
+            if (framesSinceTop >= MIN_FRAMES_AFTER_TOP_BEFORE_REP &&
+                framesSinceRep >= MIN_FRAMES_BETWEEN_REPS
+            ) {
+                repCount += 1
+                framesSinceRep = 0
+                goodRepFramesRemaining = GOOD_REP_FEEDBACK_FRAMES
+                return ExerciseFeedback("Good rep", isPositive = true)
+            }
+        } else {
+            phase = CurlPhase.READY_AT_BOTTOM
         }
 
-        return when (stage) {
-            CurlStage.UP -> ExerciseFeedback("Lower down")
-            CurlStage.DOWN -> ExerciseFeedback("Curl up")
-            CurlStage.UNKNOWN -> ExerciseFeedback("Move through a full curl")
+        return ExerciseFeedback("Curl up")
+    }
+
+    private fun onStableTop(): ExerciseFeedback {
+        if (phase == CurlPhase.READY_AT_BOTTOM ||
+            phase == CurlPhase.CURLING_UP ||
+            phase == CurlPhase.LOWERING_DOWN
+        ) {
+            phase = CurlPhase.AT_TOP
+            framesSinceTop = 0
+            return ExerciseFeedback("Lower down")
         }
+
+        return ExerciseFeedback("Lower arms to start")
+    }
+
+    private fun feedbackForPhase(): ExerciseFeedback {
+        return when (phase) {
+            CurlPhase.WAITING_FOR_BOTTOM -> ExerciseFeedback("Lower arms to start")
+            CurlPhase.READY_AT_BOTTOM,
+            CurlPhase.CURLING_UP,
+            -> ExerciseFeedback("Curl up")
+
+            CurlPhase.AT_TOP,
+            CurlPhase.LOWERING_DOWN,
+            -> ExerciseFeedback("Lower down")
+        }
+    }
+
+    private fun resetTrackingState() {
+        smoothedElbowAngle = null
+        smoothedShoulderAngle = null
+        clearPositionCandidate()
+        stablePosition = CurlPosition.UNKNOWN
+        phase = CurlPhase.WAITING_FOR_BOTTOM
+        previousAcceptedAngle = null
+        framesSinceTop = MIN_FRAMES_AFTER_TOP_BEFORE_REP
+        rejectedFrameStreak = 0
+    }
+
+    private fun clearPositionCandidate() {
+        candidatePosition = CurlPosition.UNKNOWN
+        candidatePositionFrames = 0
     }
 
     private fun currentState(
@@ -157,6 +308,10 @@ class BicepCurlCounter {
         rightElbowAngle: Double?,
         rightShoulderAngle: Double?,
         poseDetected: Boolean,
+        frameAccepted: Boolean,
+        frameStatus: String,
+        landmarkConfidence: Float?,
+        armAgreementDegrees: Double?,
         feedback: ExerciseFeedback,
     ): RepCounterState {
         return RepCounterState(
@@ -167,11 +322,45 @@ class BicepCurlCounter {
             leftShoulderAngle = leftShoulderAngle,
             rightElbowAngle = rightElbowAngle,
             rightShoulderAngle = rightShoulderAngle,
-            countingMode = "two-arm average",
-            stage = stableStage,
+            countingMode = "two-arm state machine",
+            stage = displayStage(frameAccepted),
             feedback = feedback,
             poseDetected = poseDetected,
+            frameAccepted = frameAccepted,
+            frameStatus = frameStatus,
+            landmarkConfidence = landmarkConfidence,
+            armAgreementDegrees = armAgreementDegrees,
         )
+    }
+
+    private fun displayStage(frameAccepted: Boolean): CurlStage {
+        if (!frameAccepted) {
+            return CurlStage.UNKNOWN
+        }
+
+        return when (phase) {
+            CurlPhase.READY_AT_BOTTOM -> CurlStage.DOWN
+            CurlPhase.AT_TOP -> CurlStage.UP
+            CurlPhase.WAITING_FOR_BOTTOM,
+            CurlPhase.CURLING_UP,
+            CurlPhase.LOWERING_DOWN,
+            -> CurlStage.UNKNOWN
+        }
+    }
+
+    private enum class CurlPhase(val label: String) {
+        WAITING_FOR_BOTTOM("waiting for bottom"),
+        READY_AT_BOTTOM("ready at bottom"),
+        CURLING_UP("curling up"),
+        AT_TOP("at top"),
+        LOWERING_DOWN("lowering down"),
+    }
+
+    private enum class CurlPosition {
+        TOP,
+        MID,
+        BOTTOM,
+        UNKNOWN,
     }
 
     companion object {
@@ -182,9 +371,26 @@ class BicepCurlCounter {
         // Python reference: shoulder_angle > 150.
         const val SHOULDER_FORM_THRESHOLD_DEGREES = 150.0
 
+        const val MIN_LANDMARK_CONFIDENCE = 0.55f
+        const val MAX_ARM_ANGLE_DIFFERENCE_DEGREES = 30.0
+
         private const val SMOOTHING_ALPHA = 0.35
-        private const val STABLE_STAGE_FRAME_COUNT = 3
-        private const val MIN_FRAMES_BETWEEN_REPS = 8
+        private const val STABLE_POSITION_FRAME_COUNT = 3
+        private const val MIN_FRAMES_BETWEEN_REPS = 10
+        private const val MIN_FRAMES_AFTER_TOP_BEFORE_REP = 5
         private const val GOOD_REP_FEEDBACK_FRAMES = 10
+        private const val MOVEMENT_DELTA_THRESHOLD_DEGREES = 1.5
+        private const val REJECTED_FRAME_RESET_COUNT = 15
+
+        private fun calculateArmAgreement(
+            leftElbowAngle: Double?,
+            rightElbowAngle: Double?,
+        ): Double? {
+            if (leftElbowAngle == null || rightElbowAngle == null) {
+                return null
+            }
+
+            return abs(leftElbowAngle - rightElbowAngle)
+        }
     }
 }
