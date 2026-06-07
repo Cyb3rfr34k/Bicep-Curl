@@ -1,4 +1,4 @@
-package com.rushmash91.exercisecounter.ui
+package com.cyb3rfr34k.bicepcurl.ui
 
 import android.Manifest
 import android.content.Context
@@ -43,9 +43,9 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import com.rushmash91.exercisecounter.counter.BicepCurlCounter
-import com.rushmash91.exercisecounter.counter.RepCounterState
-import com.rushmash91.exercisecounter.pose.PoseAnalyzer
+import com.cyb3rfr34k.bicepcurl.counter.BicepCurlCounter
+import com.cyb3rfr34k.bicepcurl.counter.RepCounterState
+import com.cyb3rfr34k.bicepcurl.pose.PoseAnalyzer
 import java.util.Locale
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors

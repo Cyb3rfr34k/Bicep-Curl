@@ -1,4 +1,4 @@
-package com.rushmash91.exercisecounter.counter
+package com.cyb3rfr34k.bicepcurl.counter
 
 enum class CurlStage(val label: String) {
     UP("up"),

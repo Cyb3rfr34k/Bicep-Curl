@@ -1,4 +1,4 @@
-package com.rushmash91.exercisecounter.pose
+package com.cyb3rfr34k.bicepcurl.pose
 
 import android.content.Context
 import android.graphics.Bitmap
@@ -13,8 +13,8 @@ import com.google.mediapipe.tasks.core.Delegate
 import com.google.mediapipe.tasks.vision.core.RunningMode
 import com.google.mediapipe.tasks.vision.poselandmarker.PoseLandmarker
 import com.google.mediapipe.tasks.vision.poselandmarker.PoseLandmarkerResult
-import com.rushmash91.exercisecounter.counter.BicepCurlCounter
-import com.rushmash91.exercisecounter.counter.RepCounterState
+import com.cyb3rfr34k.bicepcurl.counter.BicepCurlCounter
+import com.cyb3rfr34k.bicepcurl.counter.RepCounterState
 
 class PoseAnalyzer(
     context: Context,

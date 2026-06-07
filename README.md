@@ -81,12 +81,12 @@ This Android MVP was inspired by the public Python MediaPipe/OpenCV exercise-cou
 
 ## Project Files
 
-- `app/src/main/java/com/rushmash91/exercisecounter/MainActivity.kt`
-- `app/src/main/java/com/rushmash91/exercisecounter/ui/CameraScreen.kt`
-- `app/src/main/java/com/rushmash91/exercisecounter/pose/PoseAnalyzer.kt`
-- `app/src/main/java/com/rushmash91/exercisecounter/pose/AngleCalculator.kt`
-- `app/src/main/java/com/rushmash91/exercisecounter/counter/BicepCurlCounter.kt`
-- `app/src/main/java/com/rushmash91/exercisecounter/counter/RepCounterState.kt`
+- `app/src/main/java/com/cyb3rfr34k/bicepcurl/MainActivity.kt`
+- `app/src/main/java/com/cyb3rfr34k/bicepcurl/ui/CameraScreen.kt`
+- `app/src/main/java/com/cyb3rfr34k/bicepcurl/pose/PoseAnalyzer.kt`
+- `app/src/main/java/com/cyb3rfr34k/bicepcurl/pose/AngleCalculator.kt`
+- `app/src/main/java/com/cyb3rfr34k/bicepcurl/counter/BicepCurlCounter.kt`
+- `app/src/main/java/com/cyb3rfr34k/bicepcurl/counter/RepCounterState.kt`
 - `app/src/main/assets/pose_landmarker_lite.task`
 
 ## Next Milestones

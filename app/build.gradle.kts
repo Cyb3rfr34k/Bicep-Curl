@@ -5,11 +5,11 @@ plugins {
 }
 
 android {
-    namespace = "com.rushmash91.exercisecounter"
+    namespace = "com.cyb3rfr34k.bicepcurl"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.rushmash91.exercisecounter"
+        applicationId = "com.cyb3rfr34k.bicepcurl"
         minSdk = 24
         targetSdk = 36
         versionCode = 1

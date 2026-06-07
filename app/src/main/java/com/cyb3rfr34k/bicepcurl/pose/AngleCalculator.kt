@@ -1,4 +1,4 @@
-package com.rushmash91.exercisecounter.pose
+package com.cyb3rfr34k.bicepcurl.pose
 
 import kotlin.math.atan2
 
